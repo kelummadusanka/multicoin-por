@@ -1,10 +1,10 @@
-# multicoin Pallet
+# Multicoin Pallet
 
 A comprehensive Substrate pallet that enables a blockchain to natively support and manage multiple coins on a single runtime. Each coin is treated as a native asset with individual state, supply, and economic logic.
 
 ## Features
 
-### 🪙 multicoin Definition & Registration
+### 🪙 Multicoin Definition & Registration
 - Create new native coins with unique metadata (symbol, name, decimals)
 - Set initial supply and minting/burning permissions
 - On-chain registry of all defined coins with metadata
