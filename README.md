@@ -1,10 +1,10 @@
-# Multi-Coin Pallet
+# multicoin Pallet
 
 A comprehensive Substrate pallet that enables a blockchain to natively support and manage multiple coins on a single runtime. Each coin is treated as a native asset with individual state, supply, and economic logic.
 
 ## Features
 
-### 🪙 Multi-Coin Definition & Registration
+### 🪙 multicoin Definition & Registration
 - Create new native coins with unique metadata (symbol, name, decimals)
 - Set initial supply and minting/burning permissions
 - On-chain registry of all defined coins with metadata
@@ -100,7 +100,7 @@ pub trait Config: frame_system::Config {
 ### Runtime Configuration
 
 ```rust
-// Multi-Coin pallet configuration
+// multicoin pallet configuration
 parameter_types! {
     pub const MaxSymbolLength: u32 = 12;
     pub const MaxNameLength: u32 = 64;
@@ -427,12 +427,12 @@ Add the pallet to your workspace `Cargo.toml`:
 ```toml
 [workspace]
 members = [
-    "pallets/multi-coin",
+    "pallets/multicoin",
     # ... other pallets
 ]
 
 [workspace.dependencies]
-pallet-multi-coin = { path = "./pallets/multi-coin", default-features = false }
+pallet-multicoin = { path = "./pallets/multicoin", default-features = false }
 ```
 
 ### 2. Runtime Integration
@@ -441,15 +441,15 @@ Add to runtime `Cargo.toml`:
 
 ```toml
 [dependencies]
-pallet-multi-coin.workspace = true
+pallet-multicoin.workspace = true
 
 [features]
 std = [
-    "pallet-multi-coin/std",
+    "pallet-multicoin/std",
     # ... other pallets
 ]
 runtime-benchmarks = [
-    "pallet-multi-coin/runtime-benchmarks",
+    "pallet-multicoin/runtime-benchmarks",
     # ... other pallets
 ]
 ```
@@ -489,7 +489,7 @@ The pallet includes comprehensive tests covering:
 Run tests with:
 
 ```bash
-cargo test -p pallet-multi-coin
+cargo test -p pallet-multicoin
 ```
 
 ## Benchmarking
@@ -506,7 +506,7 @@ The pallet includes benchmarks for all extrinsic functions:
 Run benchmarks with:
 
 ```bash
-cargo test -p pallet-multi-coin --features runtime-benchmarks
+cargo test -p pallet-multicoin --features runtime-benchmarks
 ```
 
 ## Security Considerations
