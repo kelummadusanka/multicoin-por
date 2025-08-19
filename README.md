@@ -109,9 +109,9 @@ parameter_types! {
     pub const MaxCoinSupply: u128 = u128::MAX;
 }
 
-impl pallet_multi_coin::Config for Runtime {
+impl pallet_multicoin::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_multi_coin::weights::SubstrateWeight<Runtime>;
+    type WeightInfo = pallet_multicoin::weights::SubstrateWeight<Runtime>;
     type Currency = Balances;
     type MaxSymbolLength = MaxSymbolLength;
     type MaxNameLength = MaxNameLength;
@@ -463,7 +463,7 @@ In `runtime/src/lib.rs`:
 #[frame_support::runtime]
 mod runtime {
     #[runtime::pallet_index(8)]
-    pub type MultiCoin = pallet_multi_coin;
+    pub type MultiCoin = pallet_multicoin;
 }
 ```
 
