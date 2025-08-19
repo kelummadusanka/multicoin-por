@@ -1,232 +1,557 @@
-# Substrate Node Template
+# Multi-Coin Pallet
 
-A fresh [Substrate](https://substrate.io/) node, ready for hacking :rocket:
+A comprehensive Substrate pallet that enables a blockchain to natively support and manage multiple coins on a single runtime. Each coin is treated as a native asset with individual state, supply, and economic logic.
 
-A standalone version of this template is available for each release of Polkadot
-in the [Substrate Developer Hub Parachain
-Template](https://github.com/substrate-developer-hub/substrate-node-template/)
-repository. The parachain template is generated directly at each Polkadot
-release branch from the [Solochain Template in
-Substrate](https://github.com/paritytech/polkadot-sdk/tree/master/templates/solochain)
-upstream
+## Features
 
-It is usually best to use the stand-alone version to start a new project. All
-bugs, suggestions, and feature requests should be made upstream in the
-[Substrate](https://github.com/paritytech/polkadot-sdk/tree/master/substrate)
-repository.
+### 🪙 Multi-Coin Definition & Registration
+- Create new native coins with unique metadata (symbol, name, decimals)
+- Set initial supply and minting/burning permissions
+- On-chain registry of all defined coins with metadata
+- Symbol-to-ID mapping for easy lookup
 
-## Getting Started
+### 👑 Coin Ownership & Roles
+- Define admin/creator roles for each coin
+- Transfer coin ownership between accounts
+- Assign mint/burn privileges on a per-coin basis
+- Role-based permission system for coin management
 
-Depending on your operating system and Rust version, there might be additional
-packages required to compile this template. Check the
-[Install](https://docs.substrate.io/install/) instructions for your platform for
-the most common dependencies. Alternatively, you can use one of the [alternative
-installation](#alternatives-installations) options.
+### 💸 Native Coin Transfers
+- Native coin transfers via `transfer(coin_id, from, to, amount)`
+- Balance queries: `balance_of(account, coin_id)`
+- Total supply queries: `total_supply(coin_id)`
+- Overflow protection and safety checks
 
-Fetch solochain template code:
+### 🔥 Controlled Minting and Burning
+- Permission-based minting system
+- Controlled burning from account balances
+- Event logging for all mint/burn operations
+- Supply cap enforcement
 
-```sh
-git clone https://github.com/paritytech/polkadot-sdk-solochain-template.git solochain-template
+### 📊 On-Chain Metadata and Symbol Lookup
+- Complete metadata stored on-chain
+- Efficient lookups by symbol or coin ID
+- Bounded storage with configurable limits
+- Symbol uniqueness enforcement
 
-cd solochain-template
+### 🛡️ Storage Optimization
+- Efficient storage design using `StorageDoubleMap`
+- Configurable limits to prevent blockchain bloat
+- Deposit-based coin creation to prevent spam
+- Memory-efficient data structures
+
+## Architecture
+
+### Storage Items
+
+```rust
+// Coin metadata storage
+CoinMetadata<T: Config> = StorageMap<CoinId, CoinInfo<...>>
+
+// Balance storage: CoinId -> AccountId -> Balance
+Balances<T: Config> = StorageDoubleMap<CoinId, AccountId, u128>
+
+// Total supply tracking
+TotalSupply<T: Config> = StorageMap<CoinId, u128>
+
+// Symbol to ID mapping for lookups  
+SymbolToId<T: Config> = StorageMap<Symbol, CoinId>
+
+// Minting permissions: CoinId -> AccountId -> bool
+MintPermissions<T: Config> = StorageDoubleMap<CoinId, AccountId, bool>
 ```
 
-### Build
+### Key Types
 
-🔨 Use the following command to build the node without launching it:
+```rust
+// Unique identifier for each coin
+pub type CoinId = u32;
 
-```sh
-cargo build --release
+// Comprehensive coin information
+pub struct CoinInfo<Symbol, Name, AccountId, Balance> {
+    pub symbol: Symbol,      // e.g., "BTC", "ETH"
+    pub name: Name,          // e.g., "Bitcoin", "Ethereum"
+    pub decimals: u8,        // Number of decimal places
+    pub owner: AccountId,    // Current owner of the coin
+    pub deposit: Balance,    // Deposit paid for creation
+}
 ```
 
-### Embedded Docs
+## Configuration
 
-After you build the project, you can use the following command to explore its
-parameters and subcommands:
+### Pallet Config Traits
 
-```sh
-./target/release/solochain-template-node -h
+```rust
+#[pallet::config]
+pub trait Config: frame_system::Config {
+    type RuntimeEvent: From<Event<Self>> + IsType<...>;
+    type WeightInfo: WeightInfo;
+    type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
+    
+    // Configuration constants
+    type MaxSymbolLength: Get<u32>;    // Max symbol length (e.g., 12)
+    type MaxNameLength: Get<u32>;      // Max name length (e.g., 64) 
+    type MaxCoins: Get<u32>;           // Max coins allowed (e.g., 10,000)
+    type CoinDeposit: Get<Balance>;    // Deposit for coin creation
+    type MaxSupply: Get<u128>;         // Maximum supply per coin
+}
 ```
 
-You can generate and view the [Rust
-Docs](https://doc.rust-lang.org/cargo/commands/cargo-doc.html) for this template
-with this command:
+### Runtime Configuration
 
-```sh
-cargo +nightly doc --open
+```rust
+// Multi-Coin pallet configuration
+parameter_types! {
+    pub const MaxSymbolLength: u32 = 12;
+    pub const MaxNameLength: u32 = 64;
+    pub const MaxCoins: u32 = 10_000;
+    pub const CoinDeposit: Balance = 10 * UNIT;  // 10 tokens
+    pub const MaxCoinSupply: u128 = u128::MAX;
+}
+
+impl pallet_multi_coin::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_multi_coin::weights::SubstrateWeight<Runtime>;
+    type Currency = Balances;
+    type MaxSymbolLength = MaxSymbolLength;
+    type MaxNameLength = MaxNameLength;
+    type MaxCoins = MaxCoins;
+    type CoinDeposit = CoinDeposit;
+    type MaxSupply = MaxCoinSupply;
+}
 ```
 
-### Single-Node Development Chain
+## API Reference
 
-The following command starts a single-node development chain that doesn't
-persist state:
+### Dispatchable Functions
 
-```sh
-./target/release/solochain-template-node --dev
+#### `create_coin`
+Creates a new coin with specified metadata and initial supply.
+
+```rust
+pub fn create_coin(
+    origin: OriginFor<T>,
+    symbol: Vec<u8>,        // Coin symbol (e.g., "BTC")
+    name: Vec<u8>,          // Coin name (e.g., "Bitcoin")
+    decimals: u8,           // Number of decimals
+    initial_supply: u128,   // Initial supply to mint
+) -> DispatchResult
 ```
 
-To purge the development chain's state, run the following command:
+**Requirements:**
+- Origin must be signed
+- Symbol must be unique and within length limits
+- Name must be within length limits  
+- Initial supply must be > 0 and <= MaxSupply
+- Caller must have sufficient balance for deposit
 
-```sh
-./target/release/solochain-template-node purge-chain --dev
+**Events Emitted:**
+- `CoinCreated { coin_id, symbol, name, creator, initial_supply }`
+
+#### `transfer`
+Transfers coins between accounts.
+
+```rust
+pub fn transfer(
+    origin: OriginFor<T>,
+    coin_id: CoinId,        // ID of coin to transfer
+    to: T::AccountId,       // Recipient account
+    amount: u128,           // Amount to transfer
+) -> DispatchResult
 ```
 
-To start the development chain with detailed logging, run the following command:
+**Requirements:**
+- Origin must be signed
+- Coin must exist
+- Sender must have sufficient balance
+- Amount must be > 0
+- Cannot transfer to self
 
-```sh
-RUST_BACKTRACE=1 ./target/release/solochain-template-node -ldebug --dev
+**Events Emitted:**
+- `Transfer { coin_id, from, to, amount }`
+
+#### `mint`
+Mints new coins to a specified account (requires minting permission).
+
+```rust
+pub fn mint(
+    origin: OriginFor<T>,
+    coin_id: CoinId,        // ID of coin to mint
+    to: T::AccountId,       // Account to receive minted coins
+    amount: u128,           // Amount to mint
+) -> DispatchResult
 ```
 
-Development chains:
+**Requirements:**
+- Origin must be signed
+- Caller must have minting permission for the coin
+- Coin must exist
+- Amount must be > 0
+- Total supply after minting must not exceed MaxSupply
 
-- Maintain state in a `tmp` folder while the node is running.
-- Use the **Alice** and **Bob** accounts as default validator authorities.
-- Use the **Alice** account as the default `sudo` account.
-- Are preconfigured with a genesis state (`/node/src/chain_spec.rs`) that
-  includes several pre-funded development accounts.
+**Events Emitted:**
+- `Minted { coin_id, to, amount }`
 
+#### `burn`
+Burns coins from the caller's account.
 
-To persist chain state between runs, specify a base path by running a command
-similar to the following:
-
-```sh
-// Create a folder to use as the db base path
-$ mkdir my-chain-state
-
-// Use of that folder to store the chain state
-$ ./target/release/solochain-template-node --dev --base-path ./my-chain-state/
-
-// Check the folder structure created inside the base path after running the chain
-$ ls ./my-chain-state
-chains
-$ ls ./my-chain-state/chains/
-dev
-$ ls ./my-chain-state/chains/dev
-db keystore network
+```rust
+pub fn burn(
+    origin: OriginFor<T>,
+    coin_id: CoinId,        // ID of coin to burn
+    amount: u128,           // Amount to burn
+) -> DispatchResult
 ```
 
-### Connect with Polkadot-JS Apps Front-End
+**Requirements:**
+- Origin must be signed
+- Coin must exist
+- Caller must have sufficient balance
+- Amount must be > 0
 
-After you start the node template locally, you can interact with it using the
-hosted version of the [Polkadot/Substrate
-Portal](https://polkadot.js.org/apps/#/explorer?rpc=ws://localhost:9944)
-front-end by connecting to the local node endpoint. A hosted version is also
-available on [IPFS](https://dotapps.io/). You can
-also find the source code and instructions for hosting your own instance in the
-[`polkadot-js/apps`](https://github.com/polkadot-js/apps) repository.
+**Events Emitted:**
+- `Burned { coin_id, from, amount }`
 
-### Multi-Node Local Testnet
+#### `transfer_ownership`
+Transfers ownership of a coin to another account.
 
-If you want to see the multi-node consensus algorithm in action, see [Simulate a
-network](https://docs.substrate.io/tutorials/build-a-blockchain/simulate-network/).
+```rust
+pub fn transfer_ownership(
+    origin: OriginFor<T>,
+    coin_id: CoinId,        // ID of coin
+    new_owner: T::AccountId,// New owner account
+) -> DispatchResult
+```
 
-## Template Structure
+**Requirements:**
+- Origin must be signed
+- Caller must be current owner of the coin
+- Coin must exist
 
-A Substrate project such as this consists of a number of components that are
-spread across a few directories.
+**Effects:**
+- Updates coin owner
+- Transfers minting permission from old to new owner
 
-### Node
+**Events Emitted:**
+- `OwnershipTransferred { coin_id, old_owner, new_owner }`
 
-A blockchain node is an application that allows users to participate in a
-blockchain network. Substrate-based blockchain nodes expose a number of
-capabilities:
+#### `set_mint_permission`
+Grants or revokes minting permission for an account.
 
-- Networking: Substrate nodes use the [`libp2p`](https://libp2p.io/) networking
-  stack to allow the nodes in the network to communicate with one another.
-- Consensus: Blockchains must have a way to come to
-  [consensus](https://docs.substrate.io/fundamentals/consensus/) on the state of
-  the network. Substrate makes it possible to supply custom consensus engines
-  and also ships with several consensus mechanisms that have been built on top
-  of [Web3 Foundation
-  research](https://research.web3.foundation/Polkadot/protocols/NPoS).
-- RPC Server: A remote procedure call (RPC) server is used to interact with
-  Substrate nodes.
+```rust
+pub fn set_mint_permission(
+    origin: OriginFor<T>,
+    coin_id: CoinId,        // ID of coin
+    account: T::AccountId,  // Account to set permission for
+    can_mint: bool,         // Whether account can mint
+) -> DispatchResult
+```
 
-There are several files in the `node` directory. Take special note of the
-following:
+**Requirements:**
+- Origin must be signed
+- Caller must be owner of the coin
+- Coin must exist
 
-- [`chain_spec.rs`](./node/src/chain_spec.rs): A [chain
-  specification](https://docs.substrate.io/build/chain-spec/) is a source code
-  file that defines a Substrate chain's initial (genesis) state. Chain
-  specifications are useful for development and testing, and critical when
-  architecting the launch of a production chain. Take note of the
-  `development_config` and `testnet_genesis` functions. These functions are
-  used to define the genesis state for the local development chain
-  configuration. These functions identify some [well-known
-  accounts](https://docs.substrate.io/reference/command-line-tools/subkey/) and
-  use them to configure the blockchain's initial state.
-- [`service.rs`](./node/src/service.rs): This file defines the node
-  implementation. Take note of the libraries that this file imports and the
-  names of the functions it invokes. In particular, there are references to
-  consensus-related topics, such as the [block finalization and
-  forks](https://docs.substrate.io/fundamentals/consensus/#finalization-and-forks)
-  and other [consensus
-  mechanisms](https://docs.substrate.io/fundamentals/consensus/#default-consensus-models)
-  such as Aura for block authoring and GRANDPA for finality.
+**Events Emitted:**
+- `MintPermissionSet { coin_id, account, can_mint }`
 
+### Public Functions (Read-only)
 
-### Runtime
+#### `balance_of`
+Gets the balance of an account for a specific coin.
 
-In Substrate, the terms "runtime" and "state transition function" are analogous.
-Both terms refer to the core logic of the blockchain that is responsible for
-validating blocks and executing the state changes they define. The Substrate
-project in this repository uses
-[FRAME](https://docs.substrate.io/learn/runtime-development/#frame) to construct
-a blockchain runtime. FRAME allows runtime developers to declare domain-specific
-logic in modules called "pallets". At the heart of FRAME is a helpful [macro
-language](https://docs.substrate.io/reference/frame-macros/) that makes it easy
-to create pallets and flexibly compose them to create blockchains that can
-address [a variety of needs](https://substrate.io/ecosystem/projects/).
+```rust
+pub fn balance_of(account: &T::AccountId, coin_id: CoinId) -> u128
+```
 
-Review the [FRAME runtime implementation](./runtime/src/lib.rs) included in this
-template and note the following:
+#### `total_supply_of`
+Gets the total supply of a coin.
 
-- This file configures several pallets to include in the runtime. Each pallet
-  configuration is defined by a code block that begins with `impl
-  $PALLET_NAME::Config for Runtime`.
-- The pallets are composed into a single runtime by way of the
-  [#[runtime]](https://paritytech.github.io/polkadot-sdk/master/frame_support/attr.runtime.html)
-  macro, which is part of the [core FRAME pallet
-  library](https://docs.substrate.io/reference/frame-pallets/#system-pallets).
+```rust
+pub fn total_supply_of(coin_id: CoinId) -> u128
+```
 
-### Pallets
+#### `get_coin_metadata`
+Retrieves complete metadata for a coin.
 
-The runtime in this project is constructed using many FRAME pallets that ship
-with [the Substrate
-repository](https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame) and a
-template pallet that is [defined in the
-`pallets`](./pallets/template/src/lib.rs) directory.
+```rust
+pub fn get_coin_metadata(coin_id: CoinId) -> Option<CoinInfo<...>>
+```
 
-A FRAME pallet is comprised of a number of blockchain primitives, including:
+#### `get_coin_id_by_symbol`
+Finds coin ID by symbol.
 
-- Storage: FRAME defines a rich set of powerful [storage
-  abstractions](https://docs.substrate.io/build/runtime-storage/) that makes it
-  easy to use Substrate's efficient key-value database to manage the evolving
-  state of a blockchain.
-- Dispatchables: FRAME pallets define special types of functions that can be
-  invoked (dispatched) from outside of the runtime in order to update its state.
-- Events: Substrate uses
-  [events](https://docs.substrate.io/build/events-and-errors/) to notify users
-  of significant state changes.
-- Errors: When a dispatchable fails, it returns an error.
+```rust
+pub fn get_coin_id_by_symbol(symbol: &[u8]) -> Option<CoinId>
+```
 
-Each pallet has its own `Config` trait which serves as a configuration interface
-to generically define the types and parameters it depends on.
+#### `has_mint_permission`
+Checks if an account has minting permission for a coin.
 
-## Alternatives Installations
+```rust
+pub fn has_mint_permission(coin_id: CoinId, account: &T::AccountId) -> bool
+```
 
-Instead of installing dependencies and building this source directly, consider
-the following alternatives.
+## Events
 
-### Nix
+```rust
+pub enum Event<T: Config> {
+    /// A new coin was created [coin_id, symbol, name, creator, initial_supply]
+    CoinCreated { coin_id: CoinId, symbol: Vec<u8>, name: Vec<u8>, creator: T::AccountId, initial_supply: u128 },
+    
+    /// Coins were transferred [coin_id, from, to, amount]
+    Transfer { coin_id: CoinId, from: T::AccountId, to: T::AccountId, amount: u128 },
+    
+    /// Coins were minted [coin_id, to, amount]
+    Minted { coin_id: CoinId, to: T::AccountId, amount: u128 },
+    
+    /// Coins were burned [coin_id, from, amount]
+    Burned { coin_id: CoinId, from: T::AccountId, amount: u128 },
+    
+    /// Coin ownership was transferred [coin_id, old_owner, new_owner]
+    OwnershipTransferred { coin_id: CoinId, old_owner: T::AccountId, new_owner: T::AccountId },
+    
+    /// Mint permission was set [coin_id, account, can_mint]
+    MintPermissionSet { coin_id: CoinId, account: T::AccountId, can_mint: bool },
+}
+```
 
-Install [nix](https://nixos.org/) and
-[nix-direnv](https://github.com/nix-community/nix-direnv) for a fully
-plug-and-play experience for setting up the development environment. To get all
-the correct dependencies, activate direnv `direnv allow`.
+## Errors
 
-### Docker
+```rust
+pub enum Error<T> {
+    /// The coin does not exist
+    CoinNotFound,
+    /// Insufficient balance for the operation
+    InsufficientBalance,
+    /// Arithmetic overflow occurred
+    Overflow,
+    /// The symbol is already in use
+    SymbolAlreadyExists,
+    /// Symbol is too long
+    SymbolTooLong,
+    /// Name is too long
+    NameTooLong,
+    /// Maximum number of coins reached
+    TooManyCoins,
+    /// Not authorized for this operation
+    NotAuthorized,
+    /// Cannot transfer to the same account
+    TransferToSelf,
+    /// Initial supply exceeds maximum allowed
+    ExceedsMaxSupply,
+    /// Amount is zero
+    ZeroAmount,
+    /// No minting permission
+    NoMintPermission,
+}
+```
 
-Please follow the [Substrate Docker instructions
-here](https://github.com/paritytech/polkadot-sdk/blob/master/substrate/docker/README.md) to
-build the Docker container with the Substrate Node Template binary.
+## Usage Examples
+
+### Creating a New Coin
+
+```rust
+// Create a Bitcoin-like coin
+MultiCoin::create_coin(
+    RuntimeOrigin::signed(creator_account),
+    b"BTC".to_vec(),           // symbol
+    b"Bitcoin".to_vec(),       // name
+    8,                         // 8 decimal places
+    21_000_000 * 10_u128.pow(8), // 21M BTC with 8 decimals
+)?;
+```
+
+### Transferring Coins
+
+```rust
+// Transfer 1 BTC (assuming coin_id = 0, 8 decimals)
+let coin_id = 0;
+let amount = 1 * 10_u128.pow(8); // 1 BTC
+MultiCoin::transfer(
+    RuntimeOrigin::signed(sender),
+    coin_id,
+    recipient,
+    amount,
+)?;
+```
+
+### Minting Additional Supply
+
+```rust
+// Owner mints 1000 more coins
+let coin_id = 0;
+let amount = 1000 * 10_u128.pow(8);
+MultiCoin::mint(
+    RuntimeOrigin::signed(owner),
+    coin_id,
+    beneficiary,
+    amount,
+)?;
+```
+
+### Querying Balances
+
+```rust
+// Get account balance for a specific coin
+let balance = MultiCoin::balance_of(&account, coin_id);
+
+// Get total supply of a coin
+let total_supply = MultiCoin::total_supply_of(coin_id);
+
+// Find coin by symbol
+let coin_id = MultiCoin::get_coin_id_by_symbol(b"BTC");
+```
+
+### Managing Permissions
+
+```rust
+// Grant minting permission to another account
+MultiCoin::set_mint_permission(
+    RuntimeOrigin::signed(owner),
+    coin_id,
+    minter_account,
+    true, // grant permission
+)?;
+
+// Check if account can mint
+let can_mint = MultiCoin::has_mint_permission(coin_id, &account);
+```
+
+## Integration Guide
+
+### 1. Add to Workspace
+
+Add the pallet to your workspace `Cargo.toml`:
+
+```toml
+[workspace]
+members = [
+    "pallets/multi-coin",
+    # ... other pallets
+]
+
+[workspace.dependencies]
+pallet-multi-coin = { path = "./pallets/multi-coin", default-features = false }
+```
+
+### 2. Runtime Integration
+
+Add to runtime `Cargo.toml`:
+
+```toml
+[dependencies]
+pallet-multi-coin.workspace = true
+
+[features]
+std = [
+    "pallet-multi-coin/std",
+    # ... other pallets
+]
+runtime-benchmarks = [
+    "pallet-multi-coin/runtime-benchmarks",
+    # ... other pallets
+]
+```
+
+### 3. Configure Runtime
+
+In `runtime/src/lib.rs`:
+
+```rust
+// Add to runtime construction
+#[frame_support::runtime]
+mod runtime {
+    #[runtime::pallet_index(8)]
+    pub type MultiCoin = pallet_multi_coin;
+}
+```
+
+### 4. Configure Parameters
+
+In `runtime/src/configs/mod.rs`, add configuration parameters and implementation.
+
+## Testing
+
+The pallet includes comprehensive tests covering:
+
+- ✅ Coin creation and validation
+- ✅ Transfer functionality and edge cases  
+- ✅ Minting with permission checks
+- ✅ Burning functionality
+- ✅ Ownership transfer
+- ✅ Permission management
+- ✅ Multiple coin independence
+- ✅ Storage limit enforcement
+- ✅ Overflow protection
+- ✅ Error handling
+
+Run tests with:
+
+```bash
+cargo test -p pallet-multi-coin
+```
+
+## Benchmarking
+
+The pallet includes benchmarks for all extrinsic functions:
+
+- `create_coin`
+- `transfer` 
+- `mint`
+- `burn`
+- `transfer_ownership`
+- `set_mint_permission`
+
+Run benchmarks with:
+
+```bash
+cargo test -p pallet-multi-coin --features runtime-benchmarks
+```
+
+## Security Considerations
+
+### Deposit Protection
+- Coin creation requires a deposit to prevent spam
+- Deposits are reserved from creator's account
+- Consider deposit amount based on chain economics
+
+### Permission Model
+- Only coin owners can manage permissions
+- Minting permissions are explicit and revocable
+- Ownership transfer automatically updates permissions
+
+### Supply Control
+- Maximum supply limits prevent inflation attacks
+- Burning reduces total supply permanently
+- Overflow protection prevents arithmetic attacks
+
+### Access Control
+- Role-based permission system
+- Signed origins required for all operations
+- Authorization checks on sensitive operations
+
+## Future Enhancements
+
+Potential improvements for future versions:
+
+- **Multi-Currency Fee Payment**: Allow paying transaction fees in any registered coin
+- **Exchange Integration**: Built-in DEX functionality between coins
+- **Governance Integration**: Community governance for coin parameters
+- **Metadata Extensions**: Additional metadata fields (icon, website, etc.)
+- **Transfer Fees**: Configurable transfer fees per coin
+- **Freezing/Thawing**: Ability to freeze/unfreeze accounts
+- **Batch Operations**: Batch transfers and mints for efficiency
+- **Cross-Chain Support**: Integration with XCM for cross-chain transfers
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT-0 License - see the LICENSE file for details.
