@@ -63,9 +63,6 @@ pub mod pallet {
 		BoundedVec,
 	};
 	use frame_system::pallet_prelude::*;
-	use sp_runtime::{
-		traits::{CheckedAdd},
-	};
 	use sp_std::vec::Vec;
 
 	/// The current storage version.
@@ -592,4 +589,5 @@ impl<T: Config> Pallet<T> {
 	pub fn has_mint_permission(coin_id: CoinId, account: &T::AccountId) -> bool {
 		MintPermissions::<T>::get(coin_id, account)
 	}
+
 }
