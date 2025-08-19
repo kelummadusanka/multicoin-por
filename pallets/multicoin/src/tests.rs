@@ -1,6 +1,5 @@
 use crate::{mock::*, Error, Event};
-use frame_support::{assert_noop, assert_ok, traits::Get};
-use sp_runtime::traits::BadOrigin;
+use frame_support::{assert_noop, assert_ok};
 
 // Helper function to create a test coin
 fn create_test_coin(creator: u64, symbol: &str, name: &str) -> Result<u32, sp_runtime::DispatchError> {
@@ -588,4 +587,5 @@ fn workflow_test() {
 		// Total supply increased due to minting
 		assert_eq!(MultiCoin::total_supply(coin_id), 1100); // 1000 + 100
 	});
+
 }
