@@ -31,5 +31,5 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_timestamp, Timestamp]
 	[pallet_sudo, Sudo]
 	[pallet_template, Template]
-	[pallet_multi_coin, MultiCoin]
+	[pallet_multicoin, MultiCoin]
 );
