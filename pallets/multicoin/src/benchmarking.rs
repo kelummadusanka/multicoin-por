@@ -46,7 +46,7 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		let recipient: T::AccountId = account("recipient", 0, 0);
 		
-		// Setup: create a coin first
+		// Setup: create a coin with a transfer fee
 		let deposit = T::CoinDeposit::get();
 		T::Currency::make_free_balance_be(&caller, deposit + deposit);
 		
@@ -56,17 +56,27 @@ mod benchmarks {
 			b"Test Token".to_vec(),
 			18,
 			1_000_000,
+			None,
+			None,
 		));
-
+	
 		let coin_id = 0u32;
+		assert_ok!(MultiCoin::<T>::set_fee_config(
+			RawOrigin::Signed(caller.clone()).into(),
+			coin_id,
+			100, // Transfer fee
+			50,  // Minimum balance
+		));
+	
 		let amount = 500_000u128;
-
+	
 		#[extrinsic_call]
 		transfer(RawOrigin::Signed(caller.clone()), coin_id, recipient.clone(), amount);
-
+	
 		// Verify the transfer
-		assert_eq!(Balances::<T>::get(coin_id, &caller), 500_000);
+		assert_eq!(Balances::<T>::get(coin_id, &caller), 500_000 - 100); // Amount - fee
 		assert_eq!(Balances::<T>::get(coin_id, &recipient), 500_000);
+		assert_eq!(TotalSupply::<T>::get(coin_id), 1_000_000 - 100); // Fee burned
 	}
 
 	#[benchmark]
@@ -177,6 +187,35 @@ mod benchmarks {
 
 		// Verify permission granted
 		assert_eq!(MintPermissions::<T>::get(coin_id, &grantee), true);
+	}
+
+	#[benchmark]
+	fn set_fee_config() {
+		let caller: T::AccountId = whitelisted_caller();
+		
+		// Setup: create a coin
+		let deposit = T::CoinDeposit::get();
+		T::Currency::make_free_balance_be(&caller, deposit + deposit);
+		
+		assert_ok!(MultiCoin::<T>::create_coin(
+			RawOrigin::Signed(caller.clone()).into(),
+			b"FEE".to_vec(),
+			b"Fee Token".to_vec(),
+			18,
+			1_000_000,
+			None,
+			None,
+		));
+
+		let coin_id = 0u32;
+
+		#[extrinsic_call]
+		set_fee_config(RawOrigin::Signed(caller), coin_id, 100, 50);
+
+		// Verify the fee config
+		let coin_info = CoinMetadata::<T>::get(coin_id).unwrap();
+		assert_eq!(coin_info.fee_config.transfer_fee, 100);
+		assert_eq!(coin_info.fee_config.minimum_balance, 50);
 	}
 
 	impl_benchmark_test_suite!(MultiCoin, crate::mock::new_test_ext(), crate::mock::Test);
