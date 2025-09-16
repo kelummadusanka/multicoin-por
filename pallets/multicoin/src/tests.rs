@@ -589,3 +589,75 @@ fn workflow_test() {
 	});
 
 }
+
+#[test]
+fn transfer_with_fee_works() {
+    new_test_ext().execute_with(|| {
+        let caller: u64 = 1; // From mock balances
+        let recipient: u64 = 2;
+        let coin_id = 0;
+
+        // Create coin
+        assert_ok!(MultiCoin::<Test>::create_coin(
+            RawOrigin::Signed(caller).into(),
+            b"TEST".to_vec(),
+            b"Test Token".to_vec(),
+            18,
+            1_000_000,
+            None,
+            None,
+        ));
+
+        // Set fee config
+        assert_ok!(MultiCoin::<Test>::set_fee_config(
+            RawOrigin::Signed(caller).into(),
+            coin_id,
+            100,
+            50,
+        ));
+
+        // Transfer
+        assert_ok!(MultiCoin::<Test>::transfer(
+            RawOrigin::Signed(caller).into(),
+            coin_id,
+            recipient,
+            500_000,
+        ));
+
+        // Verify balances and supply
+        assert_eq!(Balances::<Test>::get(coin_id, &caller), 1_000_000 - 500_000 - 100);
+        assert_eq!(Balances::<Test>::get(coin_id, &recipient), 500_000);
+        assert_eq!(TotalSupply::<Test>::get(coin_id), 1_000_000 - 100);
+    });
+}
+
+#[test]
+fn set_fee_config_fails_non_owner() {
+    new_test_ext().execute_with(|| {
+        let caller: u64 = 1;
+        let non_owner: u64 = 2;
+        let coin_id = 0;
+
+        // Create coin
+        assert_ok!(MultiCoin::<Test>::create_coin(
+            RawOrigin::Signed(caller).into(),
+            b"TEST".to_vec(),
+            b"Test Token".to_vec(),
+            18,
+            1_000_000,
+            None,
+            None,
+        ));
+
+        // Non-owner tries to set fee
+        assert_noop!(
+            MultiCoin::<Test>::set_fee_config(
+                RawOrigin::Signed(non_owner).into(),
+                coin_id,
+                100,
+                50,
+            ),
+            Error::<Test>::NotAuthorized
+        );
+    });
+}
