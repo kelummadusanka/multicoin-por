@@ -117,6 +117,7 @@ pub mod pallet {
 			BoundedVec<u8, T::MaxNameLength>,
 			T::AccountId,
 			<T::Currency as Currency<T::AccountId>>::Balance,
+            FeeConfig,
 		>,
 		OptionQuery,
 	>;
@@ -168,6 +169,18 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
+    #[pallet::storage]
+    #[pallet::getter(fn burn_permissions)]
+    pub type BurnPermissions<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        CoinId,
+        Blake2_128Concat,
+        T::AccountId,
+        bool,
+        ValueQuery,
+    >;
+
 	/// Events emitted by this pallet
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -215,6 +228,18 @@ pub mod pallet {
 		MetadataUpdated {
 			coin_id: CoinId,
 		},
+        /// Burn permission was granted or revoked
+        BurnPermissionSet {
+            coin_id: CoinId,
+            account: T::AccountId,
+            can_burn: bool,
+        },
+        /// Fee configuration was updated
+        FeeConfigUpdated {
+            coin_id: CoinId,
+            transfer_fee: u128,
+            minimum_balance: u128,
+        },
 	}
 
 	/// Errors that can occur when using this pallet
@@ -244,6 +269,10 @@ pub mod pallet {
 		ZeroAmount,
 		/// No minting permission
 		NoMintPermission,
+        /// No burning permission
+        NoBurnPermission,
+        /// Balance would fall below minimum required
+        BelowMinimumBalance,
 	}
 
 	#[pallet::call]
@@ -266,6 +295,8 @@ pub mod pallet {
 			name: Vec<u8>,
 			decimals: u8,
 			initial_supply: u128,
+            initial_minters: Option<Vec<T::AccountId>>,  // New: Optional additional minters
+            initial_burners: Option<Vec<T::AccountId>>,  // New: Optional additional burners
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
@@ -293,14 +324,19 @@ pub mod pallet {
 			T::Currency::reserve(&who, deposit_amount)
 				.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Create coin metadata
-			let coin_info = CoinInfo {
-				symbol: bounded_symbol.clone(),
-				name: bounded_name,
-				decimals,
-				owner: who.clone(),
-				deposit: deposit_amount,
-			};
+			// Create coin metadata with default fee config
+            let coin_info = CoinInfo {
+                symbol: bounded_symbol.clone(),
+                name: bounded_name,
+                decimals,
+                owner: who.clone(),
+                deposit: deposit_amount,
+                fee_config: FeeConfig {
+                    transfer_fee: 0, // Default: no fee
+                    minimum_balance: 0, // Default: no minimum
+                    can_pay_tx_fees: false, // Default: cannot pay tx fees (for Task 6)
+                },
+            };
 
 			// Store coin information
 			CoinMetadata::<T>::insert(&coin_id, &coin_info);
@@ -310,8 +346,34 @@ pub mod pallet {
 			TotalSupply::<T>::insert(&coin_id, initial_supply);
 			Balances::<T>::insert(&coin_id, &who, initial_supply);
 
-			// Grant minting permission to creator
-			MintPermissions::<T>::insert(&coin_id, &who, true);
+			// Grant permissions to creator
+            MintPermissions::<T>::insert(&coin_id, &who, true);
+            BurnPermissions::<T>::insert(&coin_id, &who, true);  // New: Grant burn to creator
+
+            // Grant additional initial minters
+            if let Some(minters) = initial_minters {
+                for minter in minters {
+                    MintPermissions::<T>::insert(&coin_id, &minter, true);
+                    Self::deposit_event(Event::MintPermissionSet {  // Reuse event
+                        coin_id,
+                        account: minter.clone(),
+                        can_mint: true,
+                    });
+                }
+            }
+
+            // Grant additional initial burners
+            if let Some(burners) = initial_burners {
+                for burner in burners {
+                    BurnPermissions::<T>::insert(&coin_id, &burner, true);
+                    // Optionally add a new Event::BurnPermissionSet if you want separation
+                    Self::deposit_event(Event::MintPermissionSet {  // Reuse for now, or add new event
+                        coin_id,
+                        account: burner.clone(),
+                        can_mint: true,  // Adjust if adding separate event
+                    });
+                }
+            }
 
 			// Update next coin ID
 			NextCoinId::<T>::put(coin_id + 1);
@@ -346,22 +408,45 @@ pub mod pallet {
 
 			// Validate inputs
 			ensure!(amount > 0, Error::<T>::ZeroAmount);
-			ensure!(from != to, Error::<T>::TransferToSelf);
-			ensure!(CoinMetadata::<T>::contains_key(&coin_id), Error::<T>::CoinNotFound);
+            ensure!(from != to, Error::<T>::TransferToSelf);
+            let coin_info = CoinMetadata::<T>::get(&coin_id)
+                .ok_or(Error::<T>::CoinNotFound)?;
 
-			// Check balance
-			let from_balance = Balances::<T>::get(&coin_id, &from);
-			ensure!(from_balance >= amount, Error::<T>::InsufficientBalance);
+            // Calculate total amount to deduct (amount + fee)
+            let transfer_fee = coin_info.fee_config.transfer_fee;
+            let total_deduct = amount.checked_add(transfer_fee)
+                .ok_or(Error::<T>::Overflow)?;
 
-			// Perform transfer
-			let new_from_balance = from_balance.saturating_sub(amount);
-			let to_balance = Balances::<T>::get(&coin_id, &to);
-			let new_to_balance = to_balance.checked_add(amount)
-				.ok_or(Error::<T>::Overflow)?;
+            // Check sender's balance
+            let from_balance = Balances::<T>::get(&coin_id, &from);
+            ensure!(from_balance >= total_deduct, Error::<T>::InsufficientBalance);
 
-			// Update balances
-			Balances::<T>::insert(&coin_id, &from, new_from_balance);
-			Balances::<T>::insert(&coin_id, &to, new_to_balance);
+            // Check minimum balance requirement for sender after transfer
+            let new_from_balance = from_balance.saturating_sub(total_deduct);
+            ensure!(
+                new_from_balance >= coin_info.fee_config.minimum_balance,
+                Error::<T>::BelowMinimumBalance // New error
+            );
+
+            // Update recipient's balance
+            let to_balance = Balances::<T>::get(&coin_id, &to);
+            let new_to_balance = to_balance.checked_add(amount)
+                .ok_or(Error::<T>::Overflow)?;
+
+            // Apply transfer and fee (burn the fee for simplicity)
+            Balances::<T>::insert(&coin_id, &from, new_from_balance);
+            Balances::<T>::insert(&coin_id, &to, new_to_balance);
+            if transfer_fee > 0 {
+                let current_supply = TotalSupply::<T>::get(&coin_id);
+                let new_supply = current_supply.saturating_sub(transfer_fee);
+                TotalSupply::<T>::insert(&coin_id, new_supply);
+                // Emit burn event for fee
+                Self::deposit_event(Event::Burned {
+                    coin_id,
+                    from: from.clone(),
+                    amount: transfer_fee,
+                });
+            }
 
 			// Emit event
 			Self::deposit_event(Event::Transfer {
@@ -443,6 +528,12 @@ pub mod pallet {
 			// Validate inputs
 			ensure!(amount > 0, Error::<T>::ZeroAmount);
 			ensure!(CoinMetadata::<T>::contains_key(&coin_id), Error::<T>::CoinNotFound);
+
+            // Check burning permission
+            ensure!(
+                BurnPermissions::<T>::get(&coin_id, &who),
+                Error::<T>::NoBurnPermission  // Add this to Error enum
+            );
 
 			// Check balance
 			let current_balance = Balances::<T>::get(&coin_id, &who);
@@ -550,6 +641,72 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+        #[pallet::call_index(6)]  // Adjust index as needed
+        #[pallet::weight(T::WeightInfo::set_mint_permission())]  // Reuse weight or add new
+        pub fn set_burn_permission(
+            origin: OriginFor<T>,
+            coin_id: CoinId,
+            account: T::AccountId,
+            can_burn: bool,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            // Get coin metadata
+            let coin_info = CoinMetadata::<T>::get(&coin_id)
+                .ok_or(Error::<T>::CoinNotFound)?;
+
+            // Check authorization
+            ensure!(coin_info.owner == who, Error::<T>::NotAuthorized);
+
+            // Set permission
+            if can_burn {
+                BurnPermissions::<T>::insert(&coin_id, &account, true);
+            } else {
+                BurnPermissions::<T>::remove(&coin_id, &account);
+            }
+
+            // Emit event (add new Event::BurnPermissionSet { coin_id, account, can_burn })
+            Self::deposit_event(Event::BurnPermissionSet {  // Add this to Event enum
+                coin_id,
+                account,
+                can_burn,
+            });
+
+            Ok(())
+        }
+
+        #[pallet::call_index(7)] // Adjust index (e.g., after set_burn_permission)
+        #[pallet::weight(T::WeightInfo::set_fee_config())] // Add new weight in weights.rs
+        pub fn set_fee_config(
+            origin: OriginFor<T>,
+            coin_id: CoinId,
+            transfer_fee: u128,
+            minimum_balance: u128,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            // Get coin metadata
+            let mut coin_info = CoinMetadata::<T>::get(&coin_id)
+                .ok_or(Error::<T>::CoinNotFound)?;
+
+            // Check authorization
+            ensure!(coin_info.owner == who, Error::<T>::NotAuthorized);
+
+            // Update fee config
+            coin_info.fee_config.transfer_fee = transfer_fee;
+            coin_info.fee_config.minimum_balance = minimum_balance;
+            CoinMetadata::<T>::insert(&coin_id, &coin_info);
+
+            // Emit event
+            Self::deposit_event(Event::FeeConfigUpdated {
+                coin_id,
+                transfer_fee,
+                minimum_balance,
+            });
+
+            Ok(())
+        }
 	}
 }
 
@@ -573,6 +730,7 @@ impl<T: Config> Pallet<T> {
 		BoundedVec<u8, T::MaxNameLength>, 
 		T::AccountId,
 		<T::Currency as frame_support::traits::Currency<T::AccountId>>::Balance,
+        FeeConfig,
 	>> {
 		CoinMetadata::<T>::get(coin_id)
 	}
@@ -589,5 +747,10 @@ impl<T: Config> Pallet<T> {
 	pub fn has_mint_permission(coin_id: CoinId, account: &T::AccountId) -> bool {
 		MintPermissions::<T>::get(coin_id, account)
 	}
+
+    /// Check if an account has burning permission for a coin
+    pub fn has_burn_permission(coin_id: CoinId, account: &T::AccountId) -> bool {
+        BurnPermissions::<T>::get(coin_id, account)
+    }
 
 }
