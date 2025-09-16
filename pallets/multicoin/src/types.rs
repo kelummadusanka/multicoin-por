@@ -10,7 +10,7 @@ pub type CoinId = u32;
 
 /// Information about a coin
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub struct CoinInfo<Symbol, Name, AccountId, Balance> {
+pub struct CoinInfo<Symbol, Name, AccountId, Balance, FeeConfig> {
 	/// The coin symbol (e.g., "BTC", "ETH")
 	pub symbol: Symbol,
 	/// The coin name (e.g., "Bitcoin", "Ethereum") 
@@ -21,6 +21,7 @@ pub struct CoinInfo<Symbol, Name, AccountId, Balance> {
 	pub owner: AccountId,
 	/// Deposit paid for creating this coin
 	pub deposit: Balance,
+	pub fee_config: FeeConfig, // New: Add fee configuration
 }
 
 /// Coin creation parameters
@@ -119,7 +120,7 @@ pub struct CoinPermissions {
 }
 
 /// Fee configuration for a coin
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, Default)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen, Default)]
 pub struct FeeConfig {
 	/// Transfer fee per transaction
 	pub transfer_fee: u128,
@@ -127,4 +128,16 @@ pub struct FeeConfig {
 	pub minimum_balance: u128,
 	/// Whether this coin can be used to pay transaction fees
 	pub can_pay_tx_fees: bool,
+}
+
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, Default)]
+pub struct TransferFeeConfig {
+    /// Fixed fee per transfer
+    pub fixed_fee: u128,
+    /// Percentage fee (in basis points, 10000 = 100%)
+    pub percentage_fee: u16,
+    /// Minimum fee
+    pub minimum_fee: u128,
+    /// Maximum fee
+    pub maximum_fee: u128,
 }
