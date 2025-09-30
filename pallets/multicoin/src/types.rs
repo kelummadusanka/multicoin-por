@@ -141,3 +141,15 @@ pub struct TransferFeeConfig {
     /// Maximum fee
     pub maximum_fee: u128,
 }
+
+// Define a transaction extension for coin selection
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+pub struct CoinSelection {
+    pub coin_id: CoinId,
+}
+
+/*#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+pub struct SelectFeeCoin<Balance> {
+    pub tip: Balance,  // Tip for priority (can be Compact<Balance> if needed)
+    pub coin_id: Option<CoinId>,  // User-selected coin for fees; None = fallback to Balances
+}*/
