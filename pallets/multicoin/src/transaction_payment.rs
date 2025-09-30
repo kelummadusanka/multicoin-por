@@ -25,9 +25,9 @@ where
         fee: Self::Balance,
         _tip: Self::Balance,
     ) -> Result<(), TransactionValidityError> {
-        /*if fee.is_zero() {
+        if fee.is_zero() {
             return Ok(());
-        }*/
+        }
 
         // Determine which coin to use for fee payment
         let selected_coin = Self::determine_fee_coin(call, who);
@@ -57,9 +57,9 @@ where
         fee: Self::Balance,
         _tip: Self::Balance,
     ) -> Result<Self::LiquidityInfo, TransactionValidityError> {
-        /*if fee.is_zero() {
+        if fee.is_zero() {
             return Ok(None);
-        }*/
+        }
 
         // Determine which coin to use for fee payment
         let selected_coin = Self::determine_fee_coin(call, who);
