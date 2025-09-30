@@ -39,6 +39,7 @@ pub trait WeightInfo {
 	fn set_mint_permission() -> Weight;
 	fn set_metadata() -> Weight;
 	fn set_fee_config() -> Weight; // New
+	fn set_preferred_fee_coin() -> Weight; // New
 }
 
 /// Weights for pallet_multi_coin using the Substrate node and recommended hardware.
@@ -162,6 +163,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
+
+	fn set_preferred_fee_coin() -> Weight {
+		Weight::from_parts(10_000_000, 4000)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 }
 
 // For backwards compatibility and tests
@@ -277,6 +284,12 @@ impl WeightInfo for () {
 	fn set_fee_config() -> Weight {
 		// Similar to set_metadata: 1 read, 1 write
 		Weight::from_parts(11_000_000, 4489)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+
+	fn set_preferred_fee_coin() -> Weight {
+		Weight::from_parts(10_000_000, 4000)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
