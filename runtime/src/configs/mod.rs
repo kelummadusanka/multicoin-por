@@ -33,7 +33,7 @@ use frame_support::{
 	},
 };
 use frame_system::limits::{BlockLength, BlockWeights};
-use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
+use pallet_transaction_payment::{ConstFeeMultiplier, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
@@ -143,7 +143,7 @@ parameter_types! {
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction = FungibleAdapter<Balances, ()>;
+	type OnChargeTransaction = pallet_multicoin::MultiCoinFeeAdapter<Runtime>; // Use custom adapter
 	type OperationalFeeMultiplier = ConstU8<5>;
 	type WeightToFee = IdentityFee<Balance>;
 	type LengthToFee = IdentityFee<Balance>;
@@ -188,3 +188,75 @@ impl pallet_multicoin::Config for Runtime {
 	type CoinDeposit = CoinDeposit;
 	type MaxSupply = MaxCoinSupply;
 }
+
+/*impl sp_runtime::traits::SignedExtension for CoinSelection {
+    const IDENTIFIER: &'static str = "CoinSelection";
+    type AccountId = AccountId;
+    type Call = RuntimeCall;
+    type AdditionalSigned = ();
+    type Pre = ();
+
+    fn additional_signed(&self) -> Result<Self::AdditionalSigned, frame_support::unsigned::TransactionValidityError> {
+        Ok(())
+    }
+
+    fn validate(
+        &self,
+        _who: &Self::AccountId,
+        _call: &Self::Call,
+        _info: &sp_runtime::traits::DispatchInfoOf<Self::Call>,
+        _len: usize,
+    ) -> frame_support::unsigned::TransactionValidityResult {
+        Ok(())
+    }
+
+    fn pre_dispatch(
+        self,
+        _who: &Self::AccountId,
+        _call: &Self::Call,
+        _info: &sp_runtime::traits::DispatchInfoOf<Self::Call>,
+        _len: usize,
+    ) -> Result<Self::Pre, frame_support::unsigned::TransactionValidityError> {
+        Ok(())
+    }
+}*/
+
+/*impl SignedExtension for SelectFeeCoin {
+    const IDENTIFIER: &'static str = "SelectFeeCoin";
+    type AccountId = AccountId;
+    type Call = RuntimeCall;
+    type AdditionalSigned = ();
+    type Pre = Option<(CoinId, Balance)>;  // Pre-dispatch output: (coin_id, tip) for use in fee adapter
+
+    fn additional_signed(&self) -> Result<Self::AdditionalSigned, TransactionValidityError> {
+        Ok(())
+    }
+
+    fn validate(
+        &self,
+        who: &Self::AccountId,
+        _call: &Self::Call,
+        _info: &DispatchInfoOf<Self::Call>,
+        _len: usize,
+    ) -> TransactionValidity {
+        // Basic validation: If coin_id provided, check if eligible for fees
+        if let Some(coin_id) = self.coin_id {
+            let coin_info = CoinMetadata::<T>::get(&coin_id).ok_or(InvalidTransaction::Payment)?;
+            ensure!(coin_info.fee_config.can_pay_tx_fees, InvalidTransaction::Payment);
+        }
+        Ok(ValidTransaction::default())
+    }
+
+    fn pre_dispatch(..) -> Result<Self::Pre, TransactionValidityError> {
+		let fee = .. // Compute fee based on info
+		let coin_id = self.coin_id;
+		let liquidity = if let Some(coin_id) = coin_id {
+			// Call custom withdraw logic for multi-coin
+			MultiCoinFeeAdapter::withdraw_multi_fee(who, coin_id, fee)?
+		} else {
+			// Fallback to Balances
+			T::Currency::withdraw(who, fee, ..)?
+		};
+		Ok(liquidity)  // Return as Pre for correct_and_deposit_fee
+	}
+}*/
