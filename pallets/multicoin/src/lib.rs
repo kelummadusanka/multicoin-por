@@ -53,6 +53,9 @@ pub use weights::*;
 pub mod types;
 pub use types::*;
 
+pub mod transaction_payment;
+pub use transaction_payment::*;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -64,6 +67,8 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use sp_std::vec::Vec;
+	use sp_runtime::traits::Dispatchable;
+	use scale_info::prelude::boxed::Box;
 
 	/// The current storage version.
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
@@ -181,6 +186,17 @@ pub mod pallet {
         ValueQuery,
     >;
 
+	/// Storage for user's preferred fee coin
+	#[pallet::storage]
+	#[pallet::getter(fn preferred_fee_coin)]
+	pub type PreferredFeeCoin<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		CoinId,
+		OptionQuery,
+	>;
+
 	/// Events emitted by this pallet
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -239,7 +255,13 @@ pub mod pallet {
             coin_id: CoinId,
             transfer_fee: u128,
             minimum_balance: u128,
+			can_pay_tx_fees: bool, // Add this field
         },
+		/// Preferred fee coin set for an account
+		PreferredFeeCoinSet {
+			account: T::AccountId,
+			coin_id: Option<CoinId>,
+		},
 	}
 
 	/// Errors that can occur when using this pallet
@@ -273,6 +295,8 @@ pub mod pallet {
         NoBurnPermission,
         /// Balance would fall below minimum required
         BelowMinimumBalance,
+		/// Coin cannot be used to pay transaction fees
+		CannotPayFees,
 	}
 
 	#[pallet::call]
@@ -297,10 +321,19 @@ pub mod pallet {
 			initial_supply: u128,
             initial_minters: Option<Vec<T::AccountId>>,  // New: Optional additional minters
             initial_burners: Option<Vec<T::AccountId>>,  // New: Optional additional burners
+			can_pay_tx_fees: bool, // New: Optional fee payment eligibility
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
 			// Validate inputs
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
+
 			ensure!(initial_supply <= T::MaxSupply::get(), Error::<T>::ExceedsMaxSupply);
 			ensure!(initial_supply > 0, Error::<T>::ZeroAmount);
 
@@ -334,7 +367,7 @@ pub mod pallet {
                 fee_config: FeeConfig {
                     transfer_fee: 0, // Default: no fee
                     minimum_balance: 0, // Default: no minimum
-                    can_pay_tx_fees: false, // Default: cannot pay tx fees (for Task 6)
+                    can_pay_tx_fees, // Default: cannot pay tx fees (for Task 6)
                 },
             };
 
@@ -403,10 +436,18 @@ pub mod pallet {
 			coin_id: CoinId,
 			to: T::AccountId,
 			amount: u128,
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
 		) -> DispatchResult {
 			let from = ensure_signed(origin)?;
 
 			// Validate inputs
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
+
 			ensure!(amount > 0, Error::<T>::ZeroAmount);
             ensure!(from != to, Error::<T>::TransferToSelf);
             let coin_info = CoinMetadata::<T>::get(&coin_id)
@@ -474,10 +515,18 @@ pub mod pallet {
 			coin_id: CoinId,
 			to: T::AccountId,
 			amount: u128,
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
 			// Validate inputs
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
+
 			ensure!(amount > 0, Error::<T>::ZeroAmount);
 			ensure!(CoinMetadata::<T>::contains_key(&coin_id), Error::<T>::CoinNotFound);
 
@@ -522,10 +571,18 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			coin_id: CoinId,
 			amount: u128,
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
 			// Validate inputs
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
+
 			ensure!(amount > 0, Error::<T>::ZeroAmount);
 			ensure!(CoinMetadata::<T>::contains_key(&coin_id), Error::<T>::CoinNotFound);
 
@@ -570,8 +627,16 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			coin_id: CoinId,
 			new_owner: T::AccountId,
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
 
 			// Get coin metadata
 			let mut coin_info = CoinMetadata::<T>::get(&coin_id)
@@ -615,8 +680,16 @@ pub mod pallet {
 			coin_id: CoinId,
 			account: T::AccountId,
 			can_mint: bool,
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
 
 			// Get coin metadata
 			let coin_info = CoinMetadata::<T>::get(&coin_id)
@@ -649,8 +722,16 @@ pub mod pallet {
             coin_id: CoinId,
             account: T::AccountId,
             can_burn: bool,
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
 
             // Get coin metadata
             let coin_info = CoinMetadata::<T>::get(&coin_id)
@@ -683,8 +764,17 @@ pub mod pallet {
             coin_id: CoinId,
             transfer_fee: u128,
             minimum_balance: u128,
+			can_pay_tx_fees: bool, // New: Add this parameter
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
 
             // Get coin metadata
             let mut coin_info = CoinMetadata::<T>::get(&coin_id)
@@ -696,6 +786,7 @@ pub mod pallet {
             // Update fee config
             coin_info.fee_config.transfer_fee = transfer_fee;
             coin_info.fee_config.minimum_balance = minimum_balance;
+			coin_info.fee_config.can_pay_tx_fees = can_pay_tx_fees;
             CoinMetadata::<T>::insert(&coin_id, &coin_info);
 
             // Emit event
@@ -703,10 +794,75 @@ pub mod pallet {
                 coin_id,
                 transfer_fee,
                 minimum_balance,
+				can_pay_tx_fees, // Update event
             });
 
             Ok(())
         }
+
+		#[pallet::call_index(8)] // Adjust index as needed
+		#[pallet::weight(T::WeightInfo::set_preferred_fee_coin())] // Add new weight
+		pub fn set_preferred_fee_coin(
+			origin: OriginFor<T>,
+			coin_id: Option<CoinId>, // None to use Balances pallet
+			tx_fee_coin: Option<CoinId>, // Fee coin for THIS transaction
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
+
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(coin_id) = coin_id {
+				let coin_info = CoinMetadata::<T>::get(&coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
+
+			// Set or clear preferred coin
+			if let Some(coin_id) = coin_id {
+				PreferredFeeCoin::<T>::insert(&who, coin_id);
+			} else {
+				PreferredFeeCoin::<T>::remove(&who);
+			}
+
+			// Emit event
+			Self::deposit_event(Event::PreferredFeeCoinSet {
+				account: who,
+				coin_id,
+			});
+
+			Ok(())
+		}
+
+		/// Execute any pallet call with a specific fee coin
+		/// This is a wrapper that temporarily sets the fee coin for one transaction
+		#[pallet::call_index(9)] // Adjust index as needed
+		#[pallet::weight(T::WeightInfo::set_preferred_fee_coin())] // Add proper weight calculation
+		pub fn call_with_fee_coin(
+			origin: OriginFor<T>,
+			tx_fee_coin: Option<CoinId>,
+			call: Box<T::RuntimeCall>,
+		) -> DispatchResult {
+			let _who = ensure_signed(origin.clone())?;
+
+			// If coin_id is provided, ensure it exists and can pay fees
+			if let Some(tx_coin_id) = tx_fee_coin {
+				let coin_info = CoinMetadata::<T>::get(&tx_coin_id)
+					.ok_or(Error::<T>::CoinNotFound)?;
+				ensure!(coin_info.fee_config.can_pay_tx_fees, Error::<T>::CannotPayFees);
+			}
+
+			// Execute the call
+			let result = call.dispatch(origin);
+
+			result.map(|_| ()).map_err(|e| e.error)
+		}
+		
 	}
 }
 
