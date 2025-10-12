@@ -21,6 +21,7 @@ scale-info = { features = ["derive"], workspace = true }
 sp-std = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 pallet-balances = { workspace = true, default-features = false }
+pallet-transaction-payment = { workspace = true, default-features = false }
 
 [dev-dependencies]
 sp-core = { default-features = true, workspace = true }
