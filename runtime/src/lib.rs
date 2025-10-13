@@ -234,6 +234,7 @@ mod runtime {
 	#[runtime::pallet_index(8)]
 	pub type MultiCoin = pallet_multicoin;
 
+	// Include the pallet-proof-of-reserve pallet in the runtime.
 	#[runtime::pallet_index(9)]
 	pub type ProofOfReserve = pallet_proof_of_reserve;
 }
