@@ -28,6 +28,7 @@ pallet-grandpa.workspace = true
 pallet-sudo.workspace = true
 pallet-template.workspace = true
 pallet-multicoin.workspace = true
+pallet-proof-of-reserve.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-transaction-payment.workspace = true
@@ -70,6 +71,7 @@ std = [
 	"pallet-sudo/std",
 	"pallet-template/std",
 	"pallet-multicoin/std",
+	"pallet-proof-of-reserve/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",

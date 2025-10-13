@@ -23,6 +23,7 @@ pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 pub use pallet_multicoin::Call as MultiCoinCall;
+pub use pallet_proof_of_reserve::Call as ProofOfReserveCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 
@@ -232,4 +233,7 @@ mod runtime {
 	// Include the multi-coin pallet in the runtime.
 	#[runtime::pallet_index(8)]
 	pub type MultiCoin = pallet_multicoin;
+
+	#[runtime::pallet_index(9)]
+	pub type ProofOfReserve = pallet_proof_of_reserve;
 }

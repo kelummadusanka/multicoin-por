@@ -31,7 +31,9 @@ use frame_support::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
 		IdentityFee, Weight,
 	},
+	PalletId,
 };
+
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -187,6 +189,30 @@ impl pallet_multicoin::Config for Runtime {
 	type MaxCoins = MaxCoins;
 	type CoinDeposit = CoinDeposit;
 	type MaxSupply = MaxCoinSupply;
+}
+
+
+// Parameter types for the proof of reserve pallet
+parameter_types! {
+	/// Pallet ID for custody account
+	pub const ProofOfReservePalletId: PalletId = PalletId(*b"py/pfrsr");
+    /// Maximum length for external transaction ID
+    pub const MaxTxIdLength: u32 = 128;
+    /// Maximum length for external wallet address
+    pub const MaxWalletLength: u32 = 128;
+    /// Maximum length for coin name
+    pub const MaxCoinNameLength: u32 = 32;
+}
+
+/// Configure the pallet-proof-of-reserve.
+impl pallet_proof_of_reserve::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type PalletId = ProofOfReservePalletId;
+    type MaxTxIdLength = MaxTxIdLength;
+    type MaxWalletLength = MaxWalletLength;
+    type MaxCoinNameLength = MaxCoinNameLength;
+    type WeightInfo = ();
 }
 
 /*impl sp_runtime::traits::SignedExtension for CoinSelection {

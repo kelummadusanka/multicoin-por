@@ -5923,6 +5923,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-proof-of-reserve"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-session"
 version = "40.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9489,6 +9504,7 @@ dependencies = [
  "pallet-balances",
  "pallet-grandpa",
  "pallet-multicoin",
+ "pallet-proof-of-reserve",
  "pallet-sudo",
  "pallet-template",
  "pallet-timestamp",
