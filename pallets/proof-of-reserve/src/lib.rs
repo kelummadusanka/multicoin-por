@@ -7,9 +7,11 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use frame_support::traits::{Currency, Get, tokens::fungible};
+    use sp_runtime::traits::Dispatchable;
     use sp_std::vec::Vec;
     use sp_runtime::traits::{Zero, Saturating, Hash, AccountIdConversion};
     use frame_support::PalletId;
+    use scale_info::prelude::boxed::Box;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -56,8 +58,10 @@ pub mod pallet {
     #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct DepositRequest<T: Config> {
-        /// User's account on native chain
-        pub user: T::AccountId,
+        /// Account that submitted the request
+        pub submitter: T::AccountId,
+        /// Onchain account that will receive the native tokens
+        pub recipient: T::AccountId,
         /// External transaction ID (BTC tx hash)
         pub external_tx_id: BoundedVec<u8, T::MaxTxIdLength>,
         /// User's external wallet (BTC address they sent from)
@@ -110,7 +114,8 @@ pub mod pallet {
         /// User submitted deposit request
         DepositRequested {
             request_id: T::Hash,
-            user: T::AccountId,
+            submitter: T::AccountId,
+            recipient: T::AccountId,
             external_tx_id: BoundedVec<u8, T::MaxTxIdLength>,
             external_wallet: BoundedVec<u8, T::MaxWalletLength>,
             coin_name: BoundedVec<u8, T::MaxCoinNameLength>,
@@ -232,13 +237,14 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::request_deposit())]
         pub fn request_deposit(
             origin: OriginFor<T>,
+            onchain_account: T::AccountId,
             external_tx_id: Vec<u8>,
             external_wallet: Vec<u8>,
             coin_name: Vec<u8>,
             external_amount: u128,
             ratio: u128,
         ) -> DispatchResult {
-            let user = ensure_signed(origin)?;
+            let submitter = ensure_signed(origin)?;
 
             // Validate inputs
             ensure!(external_amount > 0, Error::<T>::InvalidAmount);
@@ -262,11 +268,12 @@ pub mod pallet {
             let counter = RequestCounter::<T>::get();
             RequestCounter::<T>::put(counter.saturating_add(1));
             let current_block = <frame_system::Pallet<T>>::block_number();
-            let request_id = <T::Hashing as Hash>::hash_of(&(&user, counter, current_block));
+            let request_id = <T::Hashing as Hash>::hash_of(&(&submitter, counter, current_block));
 
             // Create deposit request
             let request = DepositRequest {
-                user: user.clone(),
+                submitter: submitter.clone(),
+                recipient: onchain_account.clone(),
                 external_tx_id: bounded_tx_id.clone(),
                 external_wallet: bounded_wallet.clone(),
                 coin_name: bounded_coin_name.clone(),
@@ -281,15 +288,16 @@ pub mod pallet {
             // Store request
             DepositRequests::<T>::insert(&request_id, &request);
 
-            // Track user's deposits
-            UserDeposits::<T>::try_mutate(&user, |deposits| {
+            // Track user's deposits (track by recipient account)
+            UserDeposits::<T>::try_mutate(&onchain_account, |deposits| {
                 deposits.try_push(request_id)
                     .map_err(|_| Error::<T>::ArithmeticOverflow)
             })?;
 
             Self::deposit_event(Event::DepositRequested {
                 request_id,
-                user,
+                submitter,
+                recipient: onchain_account,
                 external_tx_id: bounded_tx_id,
                 external_wallet: bounded_wallet,
                 coin_name: bounded_coin_name,
@@ -313,15 +321,15 @@ pub mod pallet {
                 .ok_or(Error::<T>::RequestNotFound)?;
 
             ensure!(request.status == DepositStatus::Pending, Error::<T>::AlreadyProcessed);
-            ensure!(request.user != validator, Error::<T>::CannotApproveOwnRequest);
+            ensure!(request.submitter != validator, Error::<T>::CannotApproveOwnRequest);
 
             // Get custody account
             let custody_account = Self::account_id();
 
-            // Transfer tokens from custody to user
+            // Transfer tokens from custody to recipient
             T::Currency::transfer(
                 &custody_account,
-                &request.user,
+                &request.recipient,
                 request.native_amount,
                 frame_support::traits::ExistenceRequirement::AllowDeath,
             )?;
@@ -336,7 +344,7 @@ pub mod pallet {
 
             Self::deposit_event(Event::DepositApproved {
                 request_id,
-                user: request.user.clone(),
+                user: request.recipient.clone(),
                 validator,
                 native_amount: request.native_amount,
             });
@@ -507,6 +515,20 @@ pub mod pallet {
 
             Ok(())
         }
+        /// Execute any pallet call with a specific fee coin
+		/// This is a wrapper that temporarily sets the fee coin for one transaction
+		#[pallet::call_index(6)] // Adjust index as needed
+		#[pallet::weight(T::WeightInfo::call_multicoin())]
+		pub fn call_multicoin(
+			origin: OriginFor<T>,
+			call: Box<T::RuntimeCall>,
+		) -> DispatchResult {
+			let _who = ensure_signed(origin.clone())?;
+			// Execute the call
+			let result = call.dispatch(origin);
+			result.map(|_| ()).map_err(|e| e.error)
+		}
+
     }
 
     impl<T: Config> Pallet<T> {
@@ -530,6 +552,7 @@ pub mod pallet {
         fn request_withdrawal() -> Weight;
         fn complete_withdrawal() -> Weight;
         fn reject_withdrawal() -> Weight;
+        fn call_multicoin() -> Weight;
     }
 
     impl WeightInfo for () {
@@ -549,6 +572,10 @@ pub mod pallet {
             Weight::from_parts(60_000_000, 0)
         }
         fn reject_withdrawal() -> Weight {
+            Weight::from_parts(30_000_000, 0)
+        }
+
+        fn call_multicoin() -> Weight {
             Weight::from_parts(30_000_000, 0)
         }
     }
